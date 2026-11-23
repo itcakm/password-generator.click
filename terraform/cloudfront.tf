@@ -79,27 +79,12 @@ resource "aws_cloudfront_function" "security_headers" {
   EOF
 }
 
-# ── Cache policies ───────────────────────────────────────────────────────────
-
-resource "aws_cloudfront_cache_policy" "no_cache" {
-  name        = "password-generator-no-cache"
-  min_ttl     = 0
-  default_ttl = 0
-  max_ttl     = 0
-
-  parameters_in_cache_key_and_forwarded_to_origin {
-    cookies_config {
-      cookie_behavior = "none"
-    }
-    headers_config {
-      header_behavior = "none"
-    }
-    query_strings_config {
-      query_string_behavior = "all"
-    }
-    enable_accept_encoding_gzip   = true
-    enable_accept_encoding_brotli = true
-  }
+# ── Cache policy ─────────────────────────────────────────────────────────────
+# Use the AWS-managed CachingDisabled policy (4135ea2a-…).
+# Custom policies with all TTLs = 0 are rejected by CloudFront when
+# query string forwarding is enabled — this managed policy sidesteps that.
+data "aws_cloudfront_cache_policy" "caching_disabled" {
+  name = "Managed-CachingDisabled"
 }
 
 # ── Distribution ─────────────────────────────────────────────────────────────
@@ -125,7 +110,7 @@ resource "aws_cloudfront_distribution" "app" {
     target_origin_id       = "s3-${var.domain_name}"
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
-    cache_policy_id        = aws_cloudfront_cache_policy.no_cache.id
+    cache_policy_id        = data.aws_cloudfront_cache_policy.caching_disabled.id
 
     function_association {
       event_type   = "viewer-request"
