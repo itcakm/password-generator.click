@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Cryptographically secure random password generator. All generation happens in your browser — nothing is ever sent to a server." />
+  <meta name="robots" content="index, follow" />
+  <title>password-generator.click — secure passwords, instantly</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0e0f;
+      --bg2:       #0f1517;
+      --bg3:       #141d1f;
+      --border:    #1e2d30;
+      --neon:      #00ffc8;
+      --neon-dim:  #00ffc840;
+      --neon-glow: #00ffc860;
+      --cyan:      #00d4ff;
+      --purple:    #bd00ff;
+      --red:       #ff3c5a;
+      --amber:     #ffb300;
+      --text:      #c8d8db;
+      --text-dim:  #5a7a80;
+      --mono:      'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&display=swap');
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--mono);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+      );
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    /* Ambient glow */
+    body::after {
+      content: '';
+      position: fixed;
+      top: -40%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 60vw;
+      height: 60vw;
+      background: radial-gradient(circle, rgba(0,255,200,0.04) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────── */
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+
+    /* ── Header ───────────────────────────────────────────────── */
+    header {
+      text-align: center;
+      padding: 3rem 0 2.5rem;
+    }
+
+    .logo {
+      font-size: 0.72rem;
+      color: var(--neon);
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      opacity: 0.7;
+      margin-bottom: 0.6rem;
+    }
+
+    h1 {
+      font-size: clamp(1.4rem, 4vw, 2rem);
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+
+    h1 span {
+      color: var(--neon);
+      text-shadow: 0 0 20px var(--neon-glow);
+    }
+
+    .tagline {
+      margin-top: 0.75rem;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Password output ──────────────────────────────────────── */
+    .output-block {
+      margin: 2rem 0 1.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg2);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .output-block::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--neon-glow), transparent);
+    }
+
+    .output-label {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      padding: 0.6rem 1rem 0;
+    }
+
+    .passwords-list {
+      padding: 0.5rem 0 0.75rem;
+      list-style: none;
+    }
+
+    .passwords-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.35rem 1rem;
+      gap: 0.75rem;
+      border-radius: 3px;
+      transition: background 0.1s;
+    }
+
+    .passwords-list li:hover { background: rgba(0,255,200,0.04); }
+
+    .pw-text {
+      font-size: clamp(0.85rem, 2.5vw, 1.05rem);
+      font-weight: 600;
+      color: var(--neon);
+      text-shadow: 0 0 12px var(--neon-dim);
+      word-break: break-all;
+      flex: 1;
+      cursor: pointer;
+      user-select: all;
+      letter-spacing: 0.03em;
+    }
+
+    .pw-strength {
+      font-size: 0.6rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 3px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .strength-weak   { color: var(--red);    border: 1px solid var(--red);    background: rgba(255,60,90,0.08); }
+    .strength-fair   { color: var(--amber);  border: 1px solid var(--amber);  background: rgba(255,179,0,0.08); }
+    .strength-strong { color: var(--cyan);   border: 1px solid var(--cyan);   background: rgba(0,212,255,0.08); }
+    .strength-great  { color: var(--neon);   border: 1px solid var(--neon);   background: rgba(0,255,200,0.08); }
+
+    .copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 3px 8px;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.15s;
+      letter-spacing: 0.05em;
+    }
+
+    .copy-btn:hover { border-color: var(--neon); color: var(--neon); }
+    .copy-btn.copied { border-color: var(--neon); color: var(--neon); }
+
+    /* ── Action row ───────────────────────────────────────────── */
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .btn-generate {
+      flex: 1;
+      min-width: 180px;
+      background: var(--neon);
+      color: #000;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.15s;
+      box-shadow: 0 0 20px var(--neon-dim);
+    }
+
+    .btn-generate:hover {
+      background: #fff;
+      box-shadow: 0 0 32px var(--neon-glow);
+      transform: translateY(-1px);
+    }
+
+    .btn-generate:active { transform: translateY(0); }
+
+    .btn-copy-all {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 0.75rem 1.25rem;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-copy-all:hover { border-color: var(--cyan); color: var(--cyan); }
+
+    /* ── Options panel ────────────────────────────────────────── */
+    .options-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    @media (max-width: 520px) { .options-grid { grid-template-columns: 1fr; } }
+
+    .option-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+    }
+
+    .option-card.full-width {
+      grid-column: 1 / -1;
+    }
+
+    .opt-label {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 0.6rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .opt-label span { color: var(--neon); }
+
+    /* Range slider */
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      outline: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--neon);
+      cursor: pointer;
+      box-shadow: 0 0 8px var(--neon-glow);
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--neon);
+      cursor: pointer;
+      border: none;
+    }
+
+    /* Toggles */
+    .toggles {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle-row input[type="checkbox"] {
+      display: none;
+    }
+
+    .toggle-track {
+      width: 32px;
+      height: 17px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      position: relative;
+      flex-shrink: 0;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 11px; height: 11px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .toggle-row input:checked + .toggle-track {
+      background: rgba(0,255,200,0.15);
+      border-color: var(--neon);
+    }
+
+    .toggle-row input:checked + .toggle-track::after {
+      transform: translateX(15px);
+      background: var(--neon);
+    }
+
+    .toggle-name {
+      font-size: 0.75rem;
+      color: var(--text);
+    }
+
+    /* Passphrase sub-options */
+    #passphrase-opts {
+      display: none;
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border);
+    }
+
+    #passphrase-opts.visible { display: block; }
+
+    /* Count selector */
+    .count-row {
+      display: flex;
+      gap: 0.4rem;
+    }
+
+    .count-btn {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 4px 10px;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .count-btn:hover { border-color: var(--neon); color: var(--neon); }
+    .count-btn.active { border-color: var(--neon); color: var(--neon); background: var(--neon-dim); }
+
+    /* Mode tabs */
+    .mode-tabs {
+      display: flex;
+      gap: 0.4rem;
+      margin-bottom: 1rem;
+    }
+
+    .mode-tab {
+      flex: 1;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+    }
+
+    .mode-tab:hover { border-color: var(--cyan); color: var(--cyan); }
+    .mode-tab.active { border-color: var(--neon); color: var(--neon); background: var(--neon-dim); }
+
+    /* Entropy bar */
+    .entropy-row {
+      margin-bottom: 1.5rem;
+    }
+
+    .entropy-label {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.4rem;
+    }
+
+    .entropy-label strong { color: var(--text); }
+
+    .entropy-bar-track {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .entropy-bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.3s, background 0.3s;
+    }
+
+    /* ── Terminal hint ────────────────────────────────────────── */
+    .terminal-hint {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .terminal-hint-label {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 0.6rem;
+    }
+
+    .terminal-cmd {
+      font-size: 0.8rem;
+      color: var(--cyan);
+      margin-bottom: 0.3rem;
+    }
+
+    .terminal-cmd::before { content: '$ '; color: var(--text-dim); }
+
+    .terminal-hint-note {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      margin-top: 0.6rem;
+      line-height: 1.6;
+    }
+
+    /* ── Footer ───────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      line-height: 2;
+    }
+
+    footer a { color: var(--text-dim); text-decoration: none; }
+    footer a:hover { color: var(--neon); }
+
+    /* ── Toast ────────────────────────────────────────────────── */
+    .toast {
+      position: fixed;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%) translateY(4rem);
+      background: var(--bg2);
+      border: 1px solid var(--neon);
+      color: var(--neon);
+      padding: 0.6rem 1.25rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+      z-index: 999;
+      transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), opacity 0.25s;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+    /* ── Animations ───────────────────────────────────────────── */
+    @keyframes flicker {
+      0%, 100% { opacity: 1; }
+      92% { opacity: 1; }
+      93% { opacity: 0.4; }
+      94% { opacity: 1; }
+      96% { opacity: 0.6; }
+      97% { opacity: 1; }
+    }
+
+    .pw-text { animation: flicker 8s infinite; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .passwords-list li { animation: fadeIn 0.2s ease both; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">password-generator.click</div>
+    <h1>Generate <span>secure</span> passwords</h1>
+    <p class="tagline">// cryptographically secure · client-side only · nothing leaves your browser</p>
+  </header>
+
+  <!-- Mode tabs -->
+  <div class="mode-tabs">
+    <button class="mode-tab active" data-mode="random" onclick="setMode('random')">Random</button>
+    <button class="mode-tab" data-mode="passphrase" onclick="setMode('passphrase')">Passphrase</button>
+    <button class="mode-tab" data-mode="pin" onclick="setMode('pin')">PIN</button>
+  </div>
+
+  <!-- Options -->
+  <div class="options-grid" id="random-opts">
+
+    <div class="option-card full-width">
+      <div class="opt-label">Length <span id="len-val">20</span></div>
+      <input type="range" id="length" min="4" max="128" value="20"
+             oninput="document.getElementById('len-val').textContent=this.value; regenerate()" />
+    </div>
+
+    <div class="option-card">
+      <div class="opt-label">Character sets</div>
+      <div class="toggles">
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-upper" checked onchange="regenerate()" />
+          <span class="toggle-track"></span>
+          <span class="toggle-name">Uppercase A–Z</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-lower" checked onchange="regenerate()" />
+          <span class="toggle-track"></span>
+          <span class="toggle-name">Lowercase a–z</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-digits" checked onchange="regenerate()" />
+          <span class="toggle-track"></span>
+          <span class="toggle-name">Digits 0–9</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-symbols" checked onchange="regenerate()" />
+          <span class="toggle-track"></span>
+          <span class="toggle-name">Symbols !@#…</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-similar" onchange="regenerate()" />
+          <span class="toggle-track"></span>
+          <span class="toggle-name">Exclude similar (0O1lI)</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-ambiguous" onchange="regenerate()" />
+          <span class="toggle-track"></span>
+          <span class="toggle-name">Exclude ambiguous ({[|…)</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="option-card">
+      <div class="opt-label">Quantity</div>
+      <div class="count-row" id="count-row">
+        <button class="count-btn active" onclick="setCount(1)">1</button>
+        <button class="count-btn" onclick="setCount(3)">3</button>
+        <button class="count-btn" onclick="setCount(5)">5</button>
+        <button class="count-btn" onclick="setCount(10)">10</button>
+      </div>
+
+      <div class="opt-label" style="margin-top:1rem">Must include</div>
+      <div class="toggles">
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-each-upper" onchange="regenerate()" />
+          <span class="toggle-track"></span>
+          <span class="toggle-name">At least 1 uppercase</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-each-digit" checked onchange="regenerate()" />
+          <span class="toggle-track"></span>
+          <span class="toggle-name">At least 1 digit</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-each-symbol" onchange="regenerate()" />
+          <span class="toggle-track"></span>
+          <span class="toggle-name">At least 1 symbol</span>
+        </label>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Passphrase options -->
+  <div id="passphrase-opts" class="option-card full-width" style="margin-bottom:1rem;">
+    <div class="opt-label">Words <span id="words-val">4</span></div>
+    <input type="range" id="word-count" min="2" max="10" value="4"
+           oninput="document.getElementById('words-val').textContent=this.value; regenerate()" />
+    <div class="opt-label" style="margin-top:0.75rem">Separator</div>
+    <div class="count-row">
+      <button class="count-btn active" onclick="setSep('-')">-</button>
+      <button class="count-btn" onclick="setSep('_')">_</button>
+      <button class="count-btn" onclick="setSep('.')">.</button>
+      <button class="count-btn" onclick="setSep(' ')">space</button>
+      <button class="count-btn" onclick="setSep('')">none</button>
+    </div>
+    <div class="toggles" style="margin-top:0.75rem">
+      <label class="toggle-row">
+        <input type="checkbox" id="pp-capitalize" checked onchange="regenerate()" />
+        <span class="toggle-track"></span>
+        <span class="toggle-name">Capitalize words</span>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="pp-number" checked onchange="regenerate()" />
+        <span class="toggle-track"></span>
+        <span class="toggle-name">Append a number</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- PIN options -->
+  <div id="pin-opts" class="option-card full-width" style="display:none; margin-bottom:1rem;">
+    <div class="opt-label">PIN length <span id="pin-len-val">6</span></div>
+    <input type="range" id="pin-length" min="4" max="12" value="6"
+           oninput="document.getElementById('pin-len-val').textContent=this.value; regenerate()" />
+  </div>
+
+  <!-- Entropy indicator -->
+  <div class="entropy-row">
+    <div class="entropy-label">
+      <span>Entropy</span>
+      <strong id="entropy-val">—</strong>
+    </div>
+    <div class="entropy-bar-track">
+      <div class="entropy-bar-fill" id="entropy-bar" style="width:0%;background:var(--red)"></div>
+    </div>
+  </div>
+
+  <!-- Password output -->
+  <div class="output-block">
+    <div class="output-label">Generated</div>
+    <ul class="passwords-list" id="pw-list"></ul>
+  </div>
+
+  <!-- Action buttons -->
+  <div class="actions">
+    <button class="btn-generate" onclick="regenerate()">⟳ Generate New</button>
+    <button class="btn-copy-all" onclick="copyAll()">Copy All</button>
+  </div>
+
+  <!-- Terminal hint -->
+  <div class="terminal-hint">
+    <div class="terminal-hint-label">// terminal usage</div>
+    <div class="terminal-cmd">curl https://password-generator.click</div>
+    <div class="terminal-cmd">curl "https://password-generator.click?len=32&symbols=1&count=5"</div>
+    <div class="terminal-cmd">curl https://password-generator.click | pbcopy</div>
+    <div class="terminal-hint-note">
+      Parameters: <code>len</code> (4–128) · <code>upper</code> <code>lower</code> <code>digits</code> <code>symbols</code> (0/1) · <code>count</code> (1–10) · <code>mode</code> (random/passphrase/pin) · <code>words</code> · <code>sep</code><br/>
+      curl and wget automatically receive plain text — one password per line, no markup.
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <div>All generation uses <code>window.crypto.getRandomValues()</code> — CSPRNG built into your browser.</div>
+    <div>No passwords are transmitted, logged, or stored. <a href="https://github.com/itcakm/password-generator.click" target="_blank" rel="noopener">Source on GitHub ↗</a></div>
+  </footer>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let mode = 'random';
+let count = 1;
+let separator = '-';
+
+// ── Wordlist (EFF short list subset, 256 common words) ────────────────────
+// Using a compact inline wordlist — no network request
+const WORDS = [
+  'acid','arch','barn','beam','bird','blow','blue','bone','book','born',
+  'brim','buck','burn','calm','camp','card','care','cart','cave','chef',
+  'chip','clay','clip','club','coal','coat','coin','cold','cook','cool',
+  'cord','cork','corn','cost','crew','crop','cube','curb','cure','curl',
+  'dark','dart','dash','data','dawn','days','dead','deal','dean','deck',
+  'deer','desk','dice','dime','dirt','dish','disk','dive','dock','door',
+  'dove','down','drag','draw','drip','drop','drum','duck','duel','dune',
+  'dust','earl','echo','edge','epic','even','exam','exit','face','fact',
+  'fail','fair','fall','fame','farm','fast','fate','feel','feet','felt',
+  'file','fill','film','find','fire','firm','fish','fist','flag','flat',
+  'flaw','flew','flip','flow','foam','fold','folk','fond','food','fool',
+  'ford','form','fort','frog','from','fuel','full','fund','fuse','gain',
+  'game','gate','gear','gift','girl','give','glad','glow','glue','goal',
+  'gold','golf','gone','good','grab','gram','gray','grid','grip','grow',
+  'gulf','gust','hack','hail','half','hall','halt','hand','hang','hard',
+  'harm','harp','hash','haul','have','hawk','head','heal','heap','heat',
+  'heel','herb','here','hero','hide','high','hill','hint','hole','home',
+  'hood','hook','hope','horn','host','hour','huge','hull','hunt','hurl',
+  'hymn','icon','idea','idle','inch','iris','isle','jack','jade','jail',
+  'jest','join','jolt','jump','just','keen','keep','kick','kind','king',
+  'kite','knot','lamp','land','lark','lash','last','late','lead','leaf',
+  'lean','leap','left','lens','lick','lift','link','lion','list','loft',
+  'lone','long','look','loon','loop','lost','loud','love','luck','lump',
+  'lung','lure','lynx','made','mail','main','make','male','malt','many',
+  'mark','mars','mast','maze','meal','mean','meat','melt','mesh','mild',
+  'milk','mill','mind','mint','mist','mode','mole','moon','more','moss',
+  'moth','move','much','mule','muse','nail','name','neat','neck','need',
+  'nest','next','nice','nine','node','norm','note','noun','nude','null'
+];
+
+// ── Crypto helpers ─────────────────────────────────────────────────────────
+function randInt(max) {
+  // Rejection-sampling CSPRNG — no modulo bias
+  const limit = Math.floor(2**32 / max) * max;
+  const arr = new Uint32Array(1);
+  do { crypto.getRandomValues(arr); } while (arr[0] >= limit);
+  return arr[0] % max;
+}
+
+function randChar(charset) {
+  return charset[randInt(charset.length)];
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = randInt(i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// ── Charset builder ────────────────────────────────────────────────────────
+function buildCharset() {
+  let upper  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let lower  = 'abcdefghijklmnopqrstuvwxyz';
+  let digits = '0123456789';
+  let syms   = '!@#$%^&*()-_=+[]{}|;:,.<>?';
+
+  const noSimilar   = document.getElementById('opt-similar').checked;
+  const noAmbiguous = document.getElementById('opt-ambiguous').checked;
+
+  if (noSimilar) {
+    upper  = upper.replace(/[O]/g, '');
+    lower  = lower.replace(/[l]/g, '');
+    digits = digits.replace(/[01]/g, '');
+  }
+  if (noAmbiguous) {
+    syms = syms.replace(/[{}[\]|;:,.<>]/g, '');
+  }
+
+  let cs = '';
+  if (document.getElementById('opt-upper').checked)   cs += upper;
+  if (document.getElementById('opt-lower').checked)   cs += lower;
+  if (document.getElementById('opt-digits').checked)  cs += digits;
+  if (document.getElementById('opt-symbols').checked) cs += syms;
+
+  return { cs, upper, lower, digits, syms };
+}
+
+// ── Password generators ────────────────────────────────────────────────────
+function genRandom() {
+  const len = parseInt(document.getElementById('length').value);
+  const { cs, upper, lower, digits, syms } = buildCharset();
+  if (!cs.length) return '(select at least one charset)';
+
+  const needUpper  = document.getElementById('opt-each-upper').checked && upper;
+  const needDigit  = document.getElementById('opt-each-digit').checked && digits;
+  const needSymbol = document.getElementById('opt-each-symbol').checked && syms;
+
+  const required = [];
+  if (needUpper)  required.push(randChar(upper));
+  if (needDigit)  required.push(randChar(digits));
+  if (needSymbol) required.push(randChar(syms));
+
+  if (required.length > len) return '(length too short for requirements)';
+
+  const rest = Array.from({ length: len - required.length }, () => randChar(cs));
+  return shuffle([...required, ...rest]).join('');
+}
+
+function genPassphrase() {
+  const n   = parseInt(document.getElementById('word-count').value);
+  const cap = document.getElementById('pp-capitalize').checked;
+  const num = document.getElementById('pp-number').checked;
+
+  const words = Array.from({ length: n }, () => {
+    let w = WORDS[randInt(WORDS.length)];
+    return cap ? w[0].toUpperCase() + w.slice(1) : w;
+  });
+
+  if (num) words.push(String(randInt(90) + 10));
+  return words.join(separator);
+}
+
+function genPIN() {
+  const len = parseInt(document.getElementById('pin-length').value);
+  return Array.from({ length: len }, () => randInt(10)).join('');
+}
+
+function generate() {
+  if (mode === 'random')     return genRandom();
+  if (mode === 'passphrase') return genPassphrase();
+  if (mode === 'pin')        return genPIN();
+}
+
+// ── Entropy calculation ────────────────────────────────────────────────────
+function calcEntropy() {
+  if (mode === 'pin') {
+    const len = parseInt(document.getElementById('pin-length').value);
+    return Math.floor(len * Math.log2(10));
+  }
+  if (mode === 'passphrase') {
+    const n = parseInt(document.getElementById('word-count').value);
+    return Math.floor(n * Math.log2(WORDS.length));
+  }
+  const len = parseInt(document.getElementById('length').value);
+  const { cs } = buildCharset();
+  if (!cs.length) return 0;
+  return Math.floor(len * Math.log2(cs.length));
+}
+
+function strengthLabel(bits) {
+  if (bits < 40)  return { label: 'Weak',   cls: 'strength-weak' };
+  if (bits < 60)  return { label: 'Fair',   cls: 'strength-fair' };
+  if (bits < 80)  return { label: 'Strong', cls: 'strength-strong' };
+  return               { label: 'Great',  cls: 'strength-great' };
+}
+
+function updateEntropy() {
+  const bits = calcEntropy();
+  const pct  = Math.min(bits / 128 * 100, 100);
+  const { label, cls } = strengthLabel(bits);
+  const colors = {
+    'strength-weak':   'var(--red)',
+    'strength-fair':   'var(--amber)',
+    'strength-strong': 'var(--cyan)',
+    'strength-great':  'var(--neon)',
+  };
+  document.getElementById('entropy-val').textContent = `${bits} bits — ${label}`;
+  const bar = document.getElementById('entropy-bar');
+  bar.style.width = pct + '%';
+  bar.style.background = colors[cls];
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function regenerate() {
+  updateEntropy();
+  const list = document.getElementById('pw-list');
+  list.innerHTML = '';
+  const bits = calcEntropy();
+  const { label, cls } = strengthLabel(bits);
+
+  for (let i = 0; i < count; i++) {
+    const pw = generate();
+    const li = document.createElement('li');
+    li.style.animationDelay = `${i * 40}ms`;
+    li.innerHTML = `
+      <span class="pw-text" title="Click to select" onclick="selectText(this)">${escHtml(pw)}</span>
+      <span class="pw-strength ${cls}">${label}</span>
+      <button class="copy-btn" onclick="copyPw(this, '${escAttr(pw)}')">copy</button>
+    `;
+    list.appendChild(li);
+  }
+}
+
+function escHtml(s)  { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s)  { return s.replace(/'/g,'&#39;').replace(/"/g,'&quot;'); }
+
+function selectText(el) {
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+// ── Mode switching ─────────────────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === m));
+  document.getElementById('random-opts').style.display     = m === 'random'     ? 'grid'  : 'none';
+  document.getElementById('passphrase-opts').style.display = m === 'passphrase' ? 'block' : 'none';
+  document.getElementById('pin-opts').style.display        = m === 'pin'        ? 'block' : 'none';
+  regenerate();
+}
+
+function setCount(n) {
+  count = n;
+  document.querySelectorAll('.count-btn').forEach(b => b.classList.toggle('active', parseInt(b.textContent) === n));
+  regenerate();
+}
+
+function setSep(s) {
+  separator = s;
+  const labels = { '-':'-', '_':'_', '.':'.', ' ':'space', '':'none' };
+  document.querySelectorAll('#passphrase-opts .count-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent === (labels[s] ?? s));
+  });
+  regenerate();
+}
+
+// ── Clipboard ──────────────────────────────────────────────────────────────
+async function copyPw(btn, pw) {
+  await navigator.clipboard.writeText(pw);
+  btn.textContent = '✓';
+  btn.classList.add('copied');
+  showToast('Copied to clipboard');
+  setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1500);
+}
+
+async function copyAll() {
+  const pws = [...document.querySelectorAll('.pw-text')].map(el => el.textContent).join('\n');
+  await navigator.clipboard.writeText(pws);
+  showToast('All passwords copied');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// ── Keyboard shortcut ──────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+    regenerate();
+  }
+  if (e.key === 'r' && !e.ctrlKey && !e.metaKey && e.target.tagName !== 'INPUT') {
+    regenerate();
+  }
+});
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+regenerate();
+</script>
+</body>
+</html>

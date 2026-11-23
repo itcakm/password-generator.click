@@ -1,0 +1,94 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-central-1
+
+      # ── Terraform ──────────────────────────────────────────────────────────
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.11"
+          terraform_wrapper: false   # Cleaner output for script parsing
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve
+
+      # ── App build ──────────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate plain-text password pool
+        run: node src/generate-plain.js
+
+      # ── Deploy to S3 ───────────────────────────────────────────────────────
+      - name: Get S3 bucket name from Terraform output
+        id: tf-outputs
+        working-directory: terraform
+        run: |
+          echo "bucket=$(terraform output -raw s3_bucket)" >> "$GITHUB_OUTPUT"
+          echo "cf_id=$(terraform output -raw cloudfront_distribution_id)" >> "$GITHUB_OUTPUT"
+
+      - name: Sync HTML/assets to S3
+        run: |
+          aws s3 sync src/ s3://${{ steps.tf-outputs.outputs.bucket }}/ \
+            --delete \
+            --exclude "*.js" \
+            --cache-control "no-store, no-cache, must-revalidate, private" \
+            --content-type "text/html; charset=utf-8" \
+            --include "*.html"
+
+      - name: Sync plain.txt (text/plain, no charset suffix for curl)
+        run: |
+          aws s3 cp src/plain.txt s3://${{ steps.tf-outputs.outputs.bucket }}/plain.txt \
+            --cache-control "no-store, no-cache, must-revalidate, private" \
+            --content-type "text/plain"
+
+      - name: Sync plain.json
+        run: |
+          aws s3 cp src/plain.json s3://${{ steps.tf-outputs.outputs.bucket }}/plain.json \
+            --cache-control "no-store, no-cache, must-revalidate, private" \
+            --content-type "application/json"
+
+      # ── Invalidate CloudFront ──────────────────────────────────────────────
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.tf-outputs.outputs.cf_id }} \
+            --paths "/*"
+
+      - name: Deployment summary
+        run: |
+          echo "### ✅ Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Resource | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| URL | https://password-generator.click |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Bucket | ${{ steps.tf-outputs.outputs.bucket }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CF Distribution | ${{ steps.tf-outputs.outputs.cf_id }} |" >> "$GITHUB_STEP_SUMMARY"
